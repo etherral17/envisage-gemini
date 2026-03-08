@@ -1,0 +1,7 @@
+flask
+requests
+beautifulsoup4
+wordcloud
+matplotlib
+cryptography
+python-dotenv
