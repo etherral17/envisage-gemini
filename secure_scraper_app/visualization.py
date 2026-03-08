@@ -1,4 +1,6 @@
 import os
+import matplotlib
+matplotlib.use('Agg')  # Set non-interactive backend before importing pyplot
 from wordcloud import WordCloud
 import matplotlib.pyplot as plt
 
@@ -15,9 +17,11 @@ def create_wordcloud(text, api_key):
     os.makedirs(WORDCLOUD_PATH, exist_ok=True)
     path = f"{WORDCLOUD_PATH}/{api_key}_wordcloud.png"
 
+    plt.figure(figsize=(10, 5))
     plt.imshow(wc)
     plt.axis("off")
 
     plt.savefig(path)
+    plt.close()  # Close the figure to free memory
 
     return path

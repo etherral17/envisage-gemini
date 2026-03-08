@@ -1,4 +1,5 @@
-from flask import Flask, request, jsonify, g
+from flask import Flask, request, jsonify, g, send_file
+from flask_cors import CORS
 from waf import waf_check
 from auth import generate_api_key, validate_key, sessions
 from scraper import scrape_page
@@ -20,6 +21,9 @@ request_logs = []
 
 app = Flask(__name__)
 app.secret_key = config.SECRET_KEY  # required for session storage
+
+# Enable CORS for all routes
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 
 def _append_log(entry: dict):
@@ -98,8 +102,8 @@ def waf_control(action):
 
 @app.before_request
 def security_layer():
-    # skip the WAF for control/logging endpoints to avoid self‑blocking
-    if request.path.startswith("/waf") or request.path.startswith("/logs"):
+    # skip the WAF for control/logging/image endpoints to avoid self‑blocking
+    if request.path.startswith("/waf") or request.path.startswith("/logs") or request.path.startswith("/wordcloud/image"):
         return
     # the WAF may set g.waf_reason for logging
     waf_check()
@@ -172,8 +176,24 @@ def wordcloud():
         return jsonify({"error": str(ve)}), 400
 
     return jsonify({
-        "wordcloud_path": img
+        "wordcloud_path": f"/wordcloud/image/{api_key}"
     })
+
+
+@app.route("/wordcloud/image/<api_key>", methods=["GET"])
+def serve_wordcloud(api_key):
+    """Serve the wordcloud image for the given API key."""
+    # Skip WAF for image serving
+    from config import WORDCLOUD_PATH
+    filepath = os.path.join(WORDCLOUD_PATH, f"{api_key}_wordcloud.png")
+    
+    if not os.path.exists(filepath):
+        return jsonify({"error": "wordcloud not found"}), 404
+
+    try:
+        return send_file(filepath, mimetype='image/png')
+    except Exception as e:
+        return jsonify({"error": "failed to serve image", "details": str(e)}), 500
 
 
 @app.route("/data", methods=["GET"])

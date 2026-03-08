@@ -1,0 +1,134 @@
+/* App-specific styles */
+
+/* Smooth transitions for tab content */
+[data-state="active"] {
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* Custom slider styling */
+[data-slot="slider-track"] {
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+
+[data-slot="slider-range"] {
+  background: linear-gradient(90deg, #3b82f6, #06b6d4) !important;
+}
+
+[data-slot="slider-thumb"] {
+  background: white !important;
+  border: 2px solid #3b82f6 !important;
+}
+
+/* Badge hover effects */
+.badge-hover:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+/* Card hover lift effect */
+.glass-card {
+  transition: all 0.3s ease;
+}
+
+.glass-card:hover {
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+/* Button glow on hover */
+button[class*="bg-gradient-to-r"]:hover {
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.4);
+}
+
+/* Input focus glow */
+input:focus {
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+/* Table row hover */
+tr:hover td {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* Scrollbar styling for tables */
+table::-webkit-scrollbar {
+  height: 6px;
+}
+
+table::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+table::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+
+/* Animation for new items */
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.new-item {
+  animation: slideIn 0.3s ease-out;
+}
+
+/* Pulse animation for live indicators */
+@keyframes livePulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.live-indicator {
+  animation: livePulse 2s ease-in-out infinite;
+}
+
+/* Gradient text animation */
+@keyframes gradientShift {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.animated-gradient-text {
+  background-size: 200% 200%;
+  animation: gradientShift 3s ease infinite;
+}
+
+/* Canvas styling */
+canvas {
+  display: block;
+}
+
+/* Tab trigger active state enhancement */
+[data-state="active"][role="tab"] {
+  position: relative;
+}
+
+[data-state="active"][role="tab"]::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 20px;
+  height: 2px;
+  background: linear-gradient(90deg, #3b82f6, #06b6d4);
+  border-radius: 1px;
+}

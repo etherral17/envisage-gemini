@@ -1,0 +1,35 @@
+# Dependencies and libraries
+node_modules/
+venv/
+env/
+.venv/
+vendor/
+lib/
+libs/
+
+# Package managers
+*.lock
+package-lock.json
+yarn.lock
+Pipfile.lock
+gemfile.lock
+
+# Build outputs
+dist/
+build/
+*.egg-info/
+__pycache__/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Environment variables
+.env
+.env.local
+
+# OS files
+Thumbs.db
