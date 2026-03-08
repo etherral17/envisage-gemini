@@ -6,3 +6,4 @@ matplotlib
 cryptography
 python-dotenv
 streamlit
+paramiko

