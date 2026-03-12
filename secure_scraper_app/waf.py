@@ -34,6 +34,51 @@ training_data = deque(maxlen=2000)
 # trained model (None until we have enough examples)
 model = None
 
+monitor_stats = {
+    "total_requests_checked": 0,
+    "blocked_requests": 0,
+    "last_block_reason": None,
+    "last_blocked_ip": None,
+    "last_event_ts": None,
+}
+
+EXEMPT_PATH_PREFIXES = (
+    "/login",
+    "/monitoring",
+    "/waf",
+    "/logs",
+    "/session/history",
+    "/wordcloud/image",
+)
+
+
+def get_waf_status():
+    return {
+        "waf_enabled": bool(config.WAF_ENABLED),
+        "ml_available": _ml_available,
+        "blocked_ips": sorted(list(blocked_ips)),
+        "blocked_ip_count": len(blocked_ips),
+    }
+
+
+def get_monitor_snapshot():
+    return {
+        **get_waf_status(),
+        "total_requests_checked": monitor_stats["total_requests_checked"],
+        "blocked_requests": monitor_stats["blocked_requests"],
+        "last_block_reason": monitor_stats["last_block_reason"],
+        "last_blocked_ip": monitor_stats["last_blocked_ip"],
+        "last_event_ts": monitor_stats["last_event_ts"],
+    }
+
+
+def _mark_block(reason: str):
+    ip = request.remote_addr or "0.0.0.0"
+    monitor_stats["blocked_requests"] += 1
+    monitor_stats["last_block_reason"] = reason
+    monitor_stats["last_blocked_ip"] = ip
+    monitor_stats["last_event_ts"] = time.time()
+
 
 def _update_ip_stats(ip):
     now = time.time()
@@ -65,6 +110,14 @@ def _maybe_train_model():
 
 
 def waf_check():
+    if request.method == "OPTIONS":
+        return
+
+    if any(request.path.startswith(prefix) for prefix in EXEMPT_PATH_PREFIXES):
+        return
+
+    monitor_stats["total_requests_checked"] += 1
+
     if not config.WAF_ENABLED:
         return
 
@@ -73,6 +126,7 @@ def waf_check():
     payload = str(request.data) + str(request.args) + str(request.cookies)
     for pattern in SQLI_PATTERNS:
         if re.search(pattern, payload, re.IGNORECASE):
+            _mark_block("SQL Injection detected")
             # record reason before aborting
             try:
                 from flask import g
@@ -82,6 +136,7 @@ def waf_check():
             abort(403, "SQL Injection detected")
     for pattern in XSS_PATTERNS:
         if re.search(pattern, payload, re.IGNORECASE):
+            _mark_block("XSS detected")
             try:
                 from flask import g
                 g.waf_reason = "XSS detected"
@@ -95,6 +150,7 @@ def waf_check():
 
         # check blacklist first
         if ip in blocked_ips:
+            _mark_block("IP previously blocked")
             try:
                 from flask import g
                 g.waf_reason = "IP previously blocked"
@@ -112,6 +168,7 @@ def waf_check():
             pred = model.predict([features])[0]
             if pred == -1:
                 blocked_ips.add(ip)
+                _mark_block("Anomalous traffic detected")
                 try:
                     from flask import g
                     g.waf_reason = "Anomalous traffic detected"

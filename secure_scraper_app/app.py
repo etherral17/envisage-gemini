@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify, g, send_file
 from flask_cors import CORS
-from waf import waf_check
+from waf import waf_check, get_waf_status, get_monitor_snapshot
 from auth import generate_api_key, validate_key, sessions
 from scraper import scrape_page
 from storage import save_secure, load_secure
@@ -11,7 +11,7 @@ import os
 import json
 import datetime
 import config
-from config import DATA_PATH, WAF_ENABLED
+from config import DATA_PATH
 
 
 # make sure data folder exists for logs
@@ -23,12 +23,39 @@ app = Flask(__name__)
 app.secret_key = config.SECRET_KEY  # required for session storage
 
 # Enable CORS for all routes
-CORS(app, resources={r"/*": {"origins": "*"}})
+CORS(app, resources={r"/*": {"origins": "*"}},origins=["http://localhost:5173"])
+
+
+@app.errorhandler(403)
+def handle_forbidden(error):
+    """Return a JSON error body for WAF permission denials."""
+    description = getattr(error, "description", None) or "request blocked"
+    return jsonify({"error": "permission denied", "details": description}), 403
 
 
 def _append_log(entry: dict):
     """Record a log entry in memory and on disk."""
-    entry["timestamp"] = datetime.datetime.utcnow().isoformat()
+    normalized = {
+        "id": entry.get("id", len(request_logs)),
+        "timestamp": entry.get("timestamp", datetime.datetime.now(datetime.timezone.utc).isoformat()),
+        "ip": entry.get("ip", "system"),
+        "method": entry.get("method", "SYSTEM"),
+        "path": entry.get("path", entry.get("event", "system_event")),
+        "status": int(entry.get("status", 200)),
+        "args": entry.get("args", {}),
+        "cookies": entry.get("cookies", {}),
+        "headers": entry.get("headers", {}),
+    }
+    if "api_key" in entry:
+        normalized["api_key"] = entry["api_key"]
+    if "waf_reason" in entry:
+        normalized["waf_reason"] = entry["waf_reason"]
+    if "event" in entry:
+        normalized["event"] = entry["event"]
+    if "enabled" in entry:
+        normalized["enabled"] = entry["enabled"]
+
+    entry = normalized
     request_logs.append(entry)
     # append as json line
     with open(LOG_FILE, "a", encoding="utf-8") as f:
@@ -100,10 +127,49 @@ def waf_control(action):
     return jsonify({"waf_enabled": config.WAF_ENABLED})
 
 
+@app.route("/waf/status", methods=["GET"])
+def waf_status():
+    return jsonify(get_waf_status())
+
+
+@app.route("/monitoring", methods=["GET"])
+def monitoring():
+    limit = request.args.get("limit", default=50, type=int)
+    recent_logs = request_logs[-limit:] if limit and limit > 0 else request_logs
+    # Return newest -> oldest so the UI shows the most recent requests first.
+    # (request_logs is append-only, so reversing is sufficient and stable.)
+    recent_logs = list(reversed(recent_logs))
+
+    # enrich with values derived from logs for dashboard cards
+    success_requests = len([entry for entry in request_logs if 200 <= entry.get("status", 0) < 300])
+    failed_requests = len([entry for entry in request_logs if entry.get("status", 0) >= 400])
+
+    monitor = get_monitor_snapshot()
+    monitor["success_requests"] = success_requests
+    monitor["failed_requests"] = failed_requests
+    monitor["total_logs"] = len(request_logs)
+
+    return jsonify({
+        "monitor": monitor,
+        "logs": recent_logs,
+    })
+
+
 @app.before_request
 def security_layer():
+    # Always allow CORS preflight requests.
+    if request.method == "OPTIONS":
+        return "", 200
+
     # skip the WAF for control/logging/image endpoints to avoid self‑blocking
-    if request.path.startswith("/waf") or request.path.startswith("/logs") or request.path.startswith("/wordcloud/image"):
+    if (
+        request.path.startswith("/waf")
+        or request.path.startswith("/logs")
+        or request.path.startswith("/monitoring")
+        or request.path.startswith("/session/history")
+        or request.path.startswith("/login")
+        or request.path.startswith("/wordcloud/image")
+    ):
         return
     # the WAF may set g.waf_reason for logging
     waf_check()
@@ -232,4 +298,5 @@ def summary():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    print("[secure_scraper_app] starting patched backend (WAF login/OPTIONS exemptions enabled)")
+    app.run(debug=True, use_reloader=False, port=5000)
