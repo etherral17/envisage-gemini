@@ -1,0 +1,29 @@
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.venv/
+**/venv/
+**/env/
+**/ENV/
+
+# Repo contains embedded virtualenvs — never send them to Docker build context
+hackingtool/hack/
+secure_scraper_app/env/
+
+# Node / frontend
+**/node_modules/
+**/dist/
+**/.vite/
+
+# Data & runtime artifacts
+**/data/
+**/*.jsonl
+**/*.log
+
+# Git
+.git/
+.gitignore

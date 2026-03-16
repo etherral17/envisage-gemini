@@ -1,0 +1,63 @@
+services:
+  backend:
+    build:
+      context: ./secure_scraper_app
+      dockerfile: Dockerfile
+    environment:
+      # Set these in a .env file on the server
+      SECRET_KEY: ${SECRET_KEY:-change-me}
+      # Optional: provide a stable Fernet key instead of persisting to volume
+      # FERNET_KEY: ${FERNET_KEY:-}
+      # If you serve the frontend through nginx (/api proxy), CORS is not needed.
+      # Keep localhost origin for local development.
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
+      PORT: 5000
+    volumes:
+      - secure_scraper_data:/app/data
+    expose:
+      - "5000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/waf/status', timeout=2).read()"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend/app
+      dockerfile: Dockerfile
+      args:
+        # Build-time API base. With nginx proxy, keep as /api.
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  hackingtool:
+    build:
+      context: ./hackingtool
+      dockerfile: Dockerfile
+    environment:
+      # Point the Streamlit UI at the backend service by default
+      BACKEND_BASE_URL: ${BACKEND_BASE_URL:-http://backend:5000}
+    ports:
+      - "8501:8501"
+    depends_on:
+      - backend
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8501/_stcore/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  secure_scraper_data:

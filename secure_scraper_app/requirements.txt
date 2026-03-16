@@ -8,3 +8,4 @@ cryptography
 python-dotenv
 scikit-learn
 playwright
+gunicorn

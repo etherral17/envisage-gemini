@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -94,9 +95,10 @@ with tab1:
     col_a, col_b, col_c, col_d = st.columns([2, 1, 1, 1])
 
     with col_a:
+        default_backend = os.environ.get("BACKEND_BASE_URL", "http://127.0.0.1:5000")
         base_url = st.text_input(
             "Backend base URL",
-            value=st.session_state.get("base_url", "http://127.0.0.1:5000"),
+            value=st.session_state.get("base_url", default_backend),
             help="Use your EC2 DNS, e.g. https://ec2-xx-xx-xx-xx.compute-1.amazonaws.com",
         )
     with col_b:

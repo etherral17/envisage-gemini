@@ -22,8 +22,16 @@ request_logs = []
 app = Flask(__name__)
 app.secret_key = config.SECRET_KEY  # required for session storage
 
-# Enable CORS for all routes
-CORS(app, resources={r"/*": {"origins": "*"}},origins=["http://localhost:5173"])
+# CORS is mainly useful during local dev (Vite dev server). In production,
+# the frontend should proxy API requests via the same origin (nginx /api).
+cors_origins = os.environ.get("CORS_ORIGINS", "").strip()
+if cors_origins:
+    origins = [o.strip() for o in cors_origins.split(",") if o.strip()]
+    CORS(app, resources={r"/*": {"origins": origins}})
+
+
+def _dev_endpoints_enabled() -> bool:
+    return os.environ.get("ENABLE_DEV_ENDPOINTS", "").strip() == "1"
 
 
 @app.errorhandler(403)
@@ -58,8 +66,12 @@ def _append_log(entry: dict):
     entry = normalized
     request_logs.append(entry)
     # append as json line
-    with open(LOG_FILE, "a", encoding="utf-8") as f:
-        f.write(json.dumps(entry) + "\n")
+    try:
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+    except Exception as e:
+        # Never fail the request just because logging failed.
+        print(f"[secure_scraper_app] failed to write log file: {e}")
 
 
 @app.after_request
@@ -116,6 +128,8 @@ def session_history():
 @app.route("/waf/<action>", methods=["POST"])
 def waf_control(action):
     """Toggle the WAF on/off at runtime (development only)."""
+    if not _dev_endpoints_enabled():
+        return jsonify({"error": "not found"}), 404
     if action == "enable":
         config.WAF_ENABLED = True
     elif action == "disable":
@@ -189,7 +203,8 @@ def login():
 def list_keys():
     """Dev endpoint returning the currently-valid API keys."""
 
-    # never enable this in production!  It's purely for debugging.
+    if not _dev_endpoints_enabled():
+        return jsonify({"error": "not found"}), 404
     return jsonify({"keys": list(sessions.keys())})
 
 
@@ -299,4 +314,6 @@ def summary():
 
 if __name__ == "__main__":
     print("[secure_scraper_app] starting patched backend (WAF login/OPTIONS exemptions enabled)")
-    app.run(debug=True, use_reloader=False, port=5000)
+    debug = os.environ.get("FLASK_DEBUG", "").strip() == "1"
+    port = int(os.environ.get("PORT", "5000"))
+    app.run(host="0.0.0.0", debug=debug, use_reloader=False, port=port)

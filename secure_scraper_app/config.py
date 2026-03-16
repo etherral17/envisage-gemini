@@ -2,7 +2,9 @@ import os
 
 WAF_ENABLED = True
 
-SECRET_KEY = "super_secret_key"
+# Use an environment variable in deployments; fall back to the previous
+# default for local/dev convenience.
+SECRET_KEY = os.environ.get("SECRET_KEY", "super_secret_key")
 
 ALLOWED_DOMAINS = [
     "en.wikipedia.org",
@@ -10,7 +12,7 @@ ALLOWED_DOMAINS = [
     "nytimes.com"
 ]
 
-DATA_PATH = "data/"
+DATA_PATH = os.environ.get("DATA_PATH", "data/")
 
 # subdirectories within DATA_PATH
 EXTRACTED_PATH = os.path.join(DATA_PATH, "extracted_text")
