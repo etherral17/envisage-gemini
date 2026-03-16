@@ -11,6 +11,8 @@ services:
       # If you serve the frontend through nginx (/api proxy), CORS is not needed.
       # Keep localhost origin for local development.
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
+      # Dev-only endpoints (/waf/enable, /waf/disable, /keys). Keep blank in prod.
+      ENABLE_DEV_ENDPOINTS: ${ENABLE_DEV_ENDPOINTS:-}
       PORT: 5000
     volumes:
       - secure_scraper_data:/app/data
