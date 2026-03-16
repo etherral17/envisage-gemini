@@ -1,35 +1,99 @@
-# Dependencies and libraries
-node_modules/
+# -------------------------
+# Python virtual environments
+# -------------------------
+.venv/
 venv/
 env/
-.venv/
-vendor/
-lib/
-libs/
+ENV/
+env.bak/
+venv.bak/
+**/.venv/
+**/venv/
+**/env/
+**/ENV/
 
-# Package managers
-*.lock
-package-lock.json
-yarn.lock
-Pipfile.lock
-gemfile.lock
 
-# Build outputs
-dist/
-build/
-*.egg-info/
+# Project-specific environment folders
+hackingtool/hack/
+hackingtool/hack/**
+hack/
+**/hack/
+secure_scraper_app/env/
+
+# -------------------------
+# Python cache / build artifacts
+# -------------------------
 __pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.pyd
 
-# IDE and editor files
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.tox/
+.nox/
+
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+build/
+dist/
+site/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# -------------------------
+# Jupyter / notebooks
+# -------------------------
+.ipynb_checkpoints/
+
+# -------------------------
+# Runtime data and logs
+# -------------------------
+*.log
+logs/
+tmp/
+temp/
+
+# Workspace-level runtime data (demo output)
+/data/
+
+# App runtime artifacts (optional to track manually if needed)
+secure_scraper_app/data/request_logs.jsonl
+secure_scraper_app/data/*.png
+
+# -------------------------
+# Node / frontend
+# -------------------------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+frontend/app/dist/
+frontend/app/.vite/
+frontend/app/.cache/
+
+# -------------------------
+# Environment variable files
+# -------------------------
+.env
+.env.*
+!.env.example
+
+# -------------------------
+# Editor / OS files
+# -------------------------
 .vscode/
 .idea/
 *.swp
 *.swo
 .DS_Store
-
-# Environment variables
-.env
-.env.local
-
-# OS files
 Thumbs.db

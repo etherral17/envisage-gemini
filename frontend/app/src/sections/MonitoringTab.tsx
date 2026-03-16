@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { 
@@ -50,70 +51,138 @@ interface IPListItem {
   attempts?: number
 }
 
-// Mock data generators (for block/allow lists only)
-const generateBlockList = (): IPListItem[] => [
-  { ip: '192.168.1.100', reason: 'Multiple failed login attempts', addedAt: '2024-03-08T10:30:00Z', addedBy: 'admin', country: 'RU', attempts: 45 },
-  { ip: '10.0.0.55', reason: 'DDoS attack pattern detected', addedAt: '2024-03-08T09:15:00Z', addedBy: 'system', country: 'CN', attempts: 1234 },
-  { ip: '172.16.0.23', reason: 'Suspicious scraping activity', addedAt: '2024-03-07T16:45:00Z', addedBy: 'admin', country: 'BR', attempts: 89 },
-]
+function parseMonitoringTimestamp(value?: string): Date | null {
+  if (!value) {
+    return null
+  }
 
-const generateAllowList = (): IPListItem[] => [
-  { ip: '192.168.1.1', reason: 'Internal gateway', addedAt: '2024-01-01T00:00:00Z', addedBy: 'admin', country: 'US' },
-  { ip: '10.0.0.0/8', reason: 'Internal network range', addedAt: '2024-01-01T00:00:00Z', addedBy: 'admin', country: 'US' },
-]
+  const hasTimezone = /Z$|[+-]\d{2}:\d{2}$/.test(value)
+  const normalized = hasTimezone ? value : `${value}Z`
+  const date = new Date(normalized)
+
+  if (Number.isNaN(date.getTime())) {
+    return null
+  }
+
+  return date
+}
 
 export function MonitoringTab() {
   const [requests, setRequests] = useState<RequestLog[]>([])
-  const [blockList, setBlockList] = useState<IPListItem[]>(generateBlockList())
-  const [allowList, setAllowList] = useState<IPListItem[]>(generateAllowList())
+  const [blockList, setBlockList] = useState<IPListItem[]>([])
+  const [allowList, setAllowList] = useState<IPListItem[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [isTogglingWaf, setIsTogglingWaf] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const [autoRefresh, setAutoRefresh] = useState(true)
   const [wafEnabled, setWafEnabled] = useState(false)
   const [stats, setStats] = useState({
     totalRequests: 0,
     blockedRequests: 0,
     successRequests: 0,
     failedRequests: 0,
-    avgResponseTime: 0
+    avgResponseTime: 0,
+    activeConnections: 0,
+    uptime: 100
   })
 
-  // Load logs on mount
+  // Load monitoring data on mount and keep polling for live updates when enabled
   useEffect(() => {
-    loadLogs()
+    void loadMonitoring(false)
   }, [])
 
-  const loadLogs = async () => {
-    setIsLoading(true)
-    try {
-      const logsData = await apiService.getLogs(50)
-      setRequests(logsData)
+  useEffect(() => {
+    if (!autoRefresh) {
+      return
+    }
 
-      // Calculate stats
-      const totalRequests = logsData.length
-      const blockedRequests = logsData.filter(r => r.waf_reason).length
-      const successRequests = logsData.filter(r => r.status >= 200 && r.status < 300).length
-      const failedRequests = logsData.filter(r => r.status >= 400).length
+    const intervalId = setInterval(() => {
+      void loadMonitoring(true)
+    }, 5000)
+
+    return () => {
+      clearInterval(intervalId)
+    }
+  }, [autoRefresh])
+
+  const loadMonitoring = async (silent = false) => {
+    if (!silent) {
+      setIsLoading(true)
+    }
+
+    try {
+      const monitoring = await apiService.getMonitoring(50)
+      const logsData = monitoring.logs
+      const monitor = monitoring.monitor
+
+      const sortedLogs = [...logsData].sort((a, b) => {
+        const aTime = parseMonitoringTimestamp(a.timestamp)?.getTime()
+        const bTime = parseMonitoringTimestamp(b.timestamp)?.getTime()
+
+        if (typeof aTime === 'number' && typeof bTime === 'number') {
+          return bTime - aTime
+        }
+
+        return (Number(b.id) || 0) - (Number(a.id) || 0)
+      })
+
+      setRequests(sortedLogs)
+      setWafEnabled(!!monitor.waf_enabled)
+
+      const blockedIps = (monitor.blocked_ips || []).map((ip) => ({
+        ip,
+        reason: monitor.last_block_reason || 'Blocked by WAF',
+        addedAt: monitor.last_event_ts ? new Date(monitor.last_event_ts * 1000).toISOString() : new Date().toISOString(),
+        addedBy: 'waf',
+        attempts: 1,
+      }))
+      setBlockList(blockedIps)
+
+      const uniqueIps = new Set(logsData.map((entry) => entry.ip)).size
+      const failedRequests = monitor.failed_requests ?? logsData.filter(r => r.status >= 400).length
+      const totalRequests = monitor.total_logs ?? logsData.length
+      const successfulRequests = monitor.success_requests ?? logsData.filter(r => r.status >= 200 && r.status < 300).length
+      const blockedRequests = monitor.blocked_requests ?? logsData.filter(r => r.waf_reason).length
+      const responseTimes = logsData
+        .map((entry) => Number(entry.response_time ?? entry.latency_ms ?? entry.duration_ms))
+        .filter((value) => Number.isFinite(value) && value >= 0)
+
+      const avgResponseTime = responseTimes.length > 0
+        ? responseTimes.reduce((acc, curr) => acc + curr, 0) / responseTimes.length
+        : 0
+
+      const uptime = totalRequests > 0
+        ? ((totalRequests - failedRequests) / totalRequests) * 100
+        : 100
 
       setStats({
         totalRequests,
         blockedRequests,
-        successRequests,
+        successRequests: successfulRequests,
         failedRequests,
-        avgResponseTime: 145
+        avgResponseTime,
+        activeConnections: uniqueIps,
+        uptime
       })
+      setLastUpdated(new Date())
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Failed to load logs'
-      toast.error(errorMsg)
+      if (!silent) {
+        const errorMsg = error instanceof Error ? error.message : 'Failed to load monitoring data'
+        toast.error(errorMsg)
+      }
     } finally {
-      setIsLoading(false)
+      if (!silent) {
+        setIsLoading(false)
+      }
     }
   }
 
   const refreshData = async () => {
     setIsRefreshing(true)
     try {
-      await loadLogs()
+      await loadMonitoring()
       toast.success('Data refreshed')
     } catch (error) {
       toast.error('Failed to refresh data')
@@ -123,21 +192,30 @@ export function MonitoringTab() {
   }
 
   const handleToggleWaf = async (action: 'enable' | 'disable') => {
+    setIsTogglingWaf(true)
     try {
       const result = await apiService.toggleWaf(action)
       setWafEnabled(result.waf_enabled)
+      await loadMonitoring()
       toast.success(`WAF ${action}d successfully`)
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Failed to toggle WAF'
       toast.error(errorMsg)
+    } finally {
+      setIsTogglingWaf(false)
     }
   }
 
-  const filteredRequests = requests.filter(req => 
-    req.ip.includes(searchQuery) ||
-    req.path.includes(searchQuery) ||
-    req.method.includes(searchQuery)
-  )
+  const filteredRequests = requests.filter((req) => {
+    const ip = String(req.ip ?? '')
+    const path = String(req.path ?? '')
+    const method = String(req.method ?? '')
+    return (
+      ip.includes(searchQuery) ||
+      path.includes(searchQuery) ||
+      method.includes(searchQuery)
+    )
+  })
 
   const getStatusColor = (status: number) => {
     if (status >= 200 && status < 300) return 'bg-green-500/20 text-green-400 border-green-500/30'
@@ -167,6 +245,31 @@ export function MonitoringTab() {
 
   return (
     <div className="space-y-6">
+      <Card className="glass-card">
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-white">Web Application Firewall</p>
+              <p className="text-xs text-white/50 mt-1">
+                {wafEnabled ? 'WAF is enabled and actively blocking suspicious traffic' : 'WAF is disabled'}
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <Badge variant="outline" className={wafEnabled ? 'border-green-500/30 bg-green-500/10 text-green-400' : 'border-red-500/30 bg-red-500/10 text-red-400'}>
+                {wafEnabled ? 'Enabled' : 'Disabled'}
+              </Badge>
+              <Switch
+                checked={wafEnabled}
+                disabled={isTogglingWaf}
+                onCheckedChange={(checked) => {
+                  void handleToggleWaf(checked ? 'enable' : 'disable')
+                }}
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Stats Overview */}
       <div className="grid grid-cols-5 gap-4">
         <Card className="glass-card">
@@ -230,7 +333,9 @@ export function MonitoringTab() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-white/50 mb-1">Avg Response</p>
-                <p className="text-2xl font-bold text-purple-400">{Math.round(stats.avgResponseTime)}ms</p>
+                <p className="text-2xl font-bold text-purple-400">
+                  {stats.avgResponseTime > 0 ? `${Math.round(stats.avgResponseTime)}ms` : 'N/A'}
+                </p>
               </div>
               <div className="w-10 h-10 rounded-xl bg-purple-500/20 flex items-center justify-center">
                 <Zap className="w-5 h-5 text-purple-400" />
@@ -249,7 +354,7 @@ export function MonitoringTab() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-white/50 mb-1">Uptime</p>
-                <p className="text-2xl font-bold text-green-400">{stats.uptime}%</p>
+                <p className="text-2xl font-bold text-green-400">{stats.uptime.toFixed(1)}%</p>
               </div>
               <div className="w-10 h-10 rounded-xl bg-green-500/20 flex items-center justify-center">
                 <Server className="w-5 h-5 text-green-400" />
@@ -313,10 +418,21 @@ export function MonitoringTab() {
                   </div>
                   <div>
                     <CardTitle className="text-lg text-white">Request Logs</CardTitle>
-                    <p className="text-sm text-white/50">Real-time API request monitoring</p>
+                    <p className="text-sm text-white/50">
+                      Real-time API request monitoring
+                      {lastUpdated ? ` · Updated ${lastUpdated.toLocaleTimeString()}` : ''}
+                    </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setAutoRefresh((prev) => !prev)}
+                    className="border-white/10 hover:bg-white/10 text-white/70"
+                  >
+                    {autoRefresh ? 'Auto: ON' : 'Auto: OFF'}
+                  </Button>
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
                     <Input
@@ -377,18 +493,18 @@ export function MonitoringTab() {
                       {filteredRequests.map((req) => (
                         <tr key={req.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
                           <td className="py-3 px-4 text-sm text-white/70">
-                            {new Date(req.timestamp).toLocaleTimeString()}
+                            {parseMonitoringTimestamp(req.timestamp)?.toLocaleTimeString() ?? 'N/A'}
                           </td>
                           <td className="py-3 px-4">
-                            <Badge variant="outline" className={getMethodColor(req.method)}>
-                              {req.method}
+                            <Badge variant="outline" className={getMethodColor(String(req.method ?? 'N/A'))}>
+                              {req.method ?? 'N/A'}
                             </Badge>
                           </td>
-                          <td className="py-3 px-4 text-sm text-white/80 font-mono">{req.path}</td>
-                          <td className="py-3 px-4 text-sm text-white/70 font-mono">{req.ip}</td>
+                          <td className="py-3 px-4 text-sm text-white/80 font-mono">{req.path ?? 'N/A'}</td>
+                          <td className="py-3 px-4 text-sm text-white/70 font-mono">{req.ip ?? 'N/A'}</td>
                           <td className="py-3 px-4">
                             <Badge variant="outline" className={getStatusColor(req.status)}>
-                              {req.status}
+                              {req.status ?? 'N/A'}
                             </Badge>
                           </td>
                           <td className="py-3 px-4">
@@ -643,11 +759,14 @@ export function MonitoringTab() {
 }
 
 // Helper function to get country flag emoji
-function getCountryFlag(countryCode: string): string {
+function getCountryFlag(countryCode?: string): string {
   const flags: Record<string, string> = {
     'US': '🇺🇸', 'UK': '🇬🇧', 'DE': '🇩🇪', 'FR': '🇫🇷', 
     'JP': '🇯🇵', 'IN': '🇮🇳', 'BR': '🇧🇷', 'CA': '🇨🇦',
     'RU': '🇷🇺', 'CN': '🇨🇳', 'KP': '🇰🇵'
+  }
+  if (!countryCode) {
+    return '🌐'
   }
   return flags[countryCode] || '🌐'
 }

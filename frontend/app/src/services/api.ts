@@ -50,6 +50,26 @@ interface SessionHistoryResponse {
 
 interface WafResponse {
   waf_enabled: boolean
+  ml_available?: boolean
+  blocked_ips?: string[]
+  blocked_ip_count?: number
+}
+
+interface MonitoringSnapshot {
+  monitor: {
+    waf_enabled: boolean
+    total_requests_checked: number
+    blocked_requests: number
+    success_requests: number
+    failed_requests: number
+    blocked_ips: string[]
+    blocked_ip_count: number
+    total_logs: number
+    last_block_reason?: string | null
+    last_blocked_ip?: string | null
+    last_event_ts?: number | null
+  }
+  logs: LogsResponse[]
 }
 
 class ApiService {
@@ -60,10 +80,10 @@ class ApiService {
     this.apiKey = localStorage.getItem(API_KEY_STORAGE)
   }
 
-  private getHeaders(): HeadersInit {
+  private getHeaders(includeJsonContentType = false): HeadersInit {
     return {
-      'Content-Type': 'application/json',
       ...(this.apiKey && { 'x-api-key': this.apiKey }),
+      ...(includeJsonContentType && { 'Content-Type': 'application/json' }),
     }
   }
 
@@ -73,12 +93,13 @@ class ApiService {
     body?: unknown
   ): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`
+    const hasBody = body !== undefined
     const options: RequestInit = {
       method,
-      headers: this.getHeaders(),
+      headers: this.getHeaders(hasBody),
     }
 
-    if (body) {
+    if (hasBody) {
       options.body = JSON.stringify(body)
     }
 
@@ -86,8 +107,14 @@ class ApiService {
       const response = await fetch(url, options)
 
       if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || `Request failed: ${response.statusText}`)
+        let errorMessage = `Request failed: ${response.statusText}`
+        try {
+          const error = await response.json()
+          errorMessage = error.error || errorMessage
+        } catch {
+          // keep fallback message for non-json error responses
+        }
+        throw new Error(errorMessage)
       }
 
       return response.json()
@@ -133,7 +160,12 @@ class ApiService {
     try {
       return await this.request<ScrapeResponse>('/scrape', 'POST', { url })
     } catch (error) {
-      throw new Error(`Scraping failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      if (/invalid key/i.test(message)) {
+        await this.login()
+        return await this.request<ScrapeResponse>('/scrape', 'POST', { url })
+      }
+      throw new Error(`Scraping failed: ${message}`)
     }
   }
 
@@ -144,7 +176,12 @@ class ApiService {
     try {
       return await this.request<DataResponse>('/data')
     } catch (error) {
-      throw new Error(`Failed to get data: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      if (/invalid key/i.test(message)) {
+        await this.login()
+        return await this.request<DataResponse>('/data')
+      }
+      throw new Error(`Failed to get data: ${message}`)
     }
   }
 
@@ -155,7 +192,12 @@ class ApiService {
     try {
       return await this.request<WordCloudResponse>('/wordcloud')
     } catch (error) {
-      throw new Error(`Failed to get wordcloud: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      if (/invalid key/i.test(message)) {
+        await this.login()
+        return await this.request<WordCloudResponse>('/wordcloud')
+      }
+      throw new Error(`Failed to get wordcloud: ${message}`)
     }
   }
 
@@ -166,7 +208,12 @@ class ApiService {
     try {
       return await this.request<WordCloudResponse>('/wordcloud')
     } catch (error) {
-      throw new Error(`Failed to generate wordcloud: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      if (/invalid key/i.test(message)) {
+        await this.login()
+        return await this.request<WordCloudResponse>('/wordcloud')
+      }
+      throw new Error(`Failed to generate wordcloud: ${message}`)
     }
   }
 
@@ -177,7 +224,12 @@ class ApiService {
     try {
       return await this.request<SummaryResponse>('/summary')
     } catch (error) {
-      throw new Error(`Failed to get summary: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      if (/invalid key/i.test(message)) {
+        await this.login()
+        return await this.request<SummaryResponse>('/summary')
+      }
+      throw new Error(`Failed to get summary: ${message}`)
     }
   }
 
@@ -211,6 +263,22 @@ class ApiService {
       return await this.request<WafResponse>(`/waf/${action}`, 'POST')
     } catch (error) {
       throw new Error(`Failed to toggle WAF: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async getWafStatus(): Promise<WafResponse> {
+    try {
+      return await this.request<WafResponse>('/waf/status')
+    } catch (error) {
+      throw new Error(`Failed to fetch WAF status: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async getMonitoring(limit = 50): Promise<MonitoringSnapshot> {
+    try {
+      return await this.request<MonitoringSnapshot>(`/monitoring?limit=${limit}`)
+    } catch (error) {
+      throw new Error(`Failed to fetch monitoring details: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 

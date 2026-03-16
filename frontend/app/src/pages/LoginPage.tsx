@@ -14,7 +14,7 @@ export function LoginPage({ onLoginSuccess }: LoginPageProps) {
   const handleLogin = async () => {
     setIsLoading(true)
     try {
-      const response = await apiService.login()
+      await apiService.login()
       toast.success('Login successful! Redirecting to dashboard...')
       // Small delay for user feedback
       setTimeout(() => {
