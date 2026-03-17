@@ -1,45 +1,61 @@
-# Secure Scraper App
+# Secure Scraper App (Flask + WAF)
 
-This Flask application simulates a small web service with scraping capabilities and an integrated Web Application Firewall (WAF). It’s intended for educational and testing purposes, demonstrating encryption, logging, and anomaly detection.
+This Flask application provides a small scraping API protected by a demo Web Application Firewall (WAF). It is intended for educational/defensive demonstrations (blocking suspicious patterns, showing logs/monitoring, etc.).
 
-## Components
+## Key behavior
 
-- **`app.py`** – main Flask application. Exposes endpoints for:
-  - `/login` – accepts credentials and sets an encrypted session cookie.
-  - `/scrape` – accepts a URL to fetch (optionally using Playwright) and stores the extracted text under `data/extracted_text` and a generated wordcloud under `data/wordcloud`.
-  - `/data`, `/wordcloud`, `/summary` – retrieval endpoints for stored content.
-  - `/logs` – returns application request logs written to `data/request_logs.jsonl`.
-  - `/session/history` – shows decrypted session data for the current cookie.
-  - `/waf/enable` and `/waf/disable` – toggle the in‑memory WAF.
-  - `/keys` – debug endpoint exposing the encryption key (for lab use).
+- Authentication is API-key based.
+  - `GET /login` returns a JSON body containing an `x-api-key` value.
+  - Protected endpoints require the request header `x-api-key: <key>`.
 
-  The file also contains hooks (`before_request` / `after_request`) for logging and invoking `waf.check_request`.
+- Request logging is always on.
+  - Logs are written to `data/request_logs.jsonl` and also kept in-memory for the current process.
 
-- **`waf.py`** – defines a signature‑based WAF with regex rules and an IsolationForest machine‑learning detector. It maintains a blacklist of IPs, reasons for blocking, and tracks request statistics for model training.
+- Scraped text is stored encrypted on disk.
+  - `storage.py` encrypts blobs with Fernet using `FERNET_KEY`.
+  - If `FERNET_KEY` is not provided via environment variable, the app creates/uses a persistent key file at `data/fernet.key` (under `DATA_PATH`).
 
-- **`scraper.py`** – performs HTTP GETs or runs Playwright to fetch and filter page content.
+- WAF controls are demo/dev-only.
+  - `POST /waf/enable` and `POST /waf/disable` only work when `ENABLE_DEV_ENDPOINTS=1`.
+  - `GET /waf/status` is always available and is used for health checks.
 
-- **`storage.py`**, **`visualization.py`**, **`auth.py**, **`config.py`** – utility modules for encryption, file I/O, session management, and configuration (including persistent Fernet key handling and data path definitions).
+## Endpoints (overview)
 
-- **`data/`** – directory where encrypted sessions, logs, extracted text, and wordcloud images are stored.
+- `GET /login` — returns `{"x-api-key": "..."}`.
+- `POST /scrape` — scrape a URL (JSON body `{ "url": "https://..." }`), requires `x-api-key`.
+- `GET /data` — returns the most recent scraped text for the API key, requires `x-api-key`.
+- `GET /wordcloud` — generates/returns a wordcloud path for the API key, requires `x-api-key`.
+- `GET /summary` — returns an LLM summary (if configured), requires `x-api-key`.
+- `GET /logs` — returns recent request logs.
+- `GET /monitoring` — returns a monitoring snapshot + recent logs.
+- `GET /session/history` — returns the list of request log entry ids associated with the current Flask session cookie.
 
-- **`requirements.txt`** – Python dependencies including Flask, Playwright, scikit-learn, etc.
+- `GET /waf/status` — returns WAF status, blocked IPs, and ML availability.
+- `POST /waf/enable` — enable WAF (demo/dev-only; requires `ENABLE_DEV_ENDPOINTS=1`).
+- `POST /waf/disable` — disable WAF (demo/dev-only; requires `ENABLE_DEV_ENDPOINTS=1`).
 
-- **Test scripts** –
-  - `waf_test.py` – exercises signature and ML detections.
-  - `toggle_test.py` – checks WAF toggle endpoints.
-  - `inspect_logs.py` – reads and pretty‑prints the JSONL log file.
+- `GET /keys` — returns the currently valid API keys (demo/dev-only; requires `ENABLE_DEV_ENDPOINTS=1`).
 
-## Setup and Usage
+## Code layout
 
-1. Install dependencies: `pip install -r requirements.txt` and `python -m playwright install chromium`.
-2. Launch the app: `python app.py`. It runs on port 5000 by default.
-3. Use the endpoints to log in, scrape URLs, and observe WAF behaviour. See the testing scripts for examples of how to interact programmatically.
+- `app.py` — Flask routes, request logging, and WAF invocation (`waf_check()` in a `before_request` hook).
+- `waf.py` — signature-based rules + optional ML anomaly detector (IsolationForest when scikit-learn is installed).
+- `scraper.py` — page fetch + text extraction.
+- `storage.py` / `visualization.py` / `auth.py` / `config.py` — persistence, wordcloud generation, key management, and configuration.
 
-## Security Considerations
+## Running
 
-- The WAF logic and logs are intended for demonstration; they are not production‑grade.
-- The stored Fernet key is persisted in `config.key` so that data remains decryptable across restarts. Keep it private.
-- Logs and sessions are stored unencrypted in `data/` for ease of inspection.
+### Via Docker Compose (recommended)
 
-This project serves as a learning platform for secure scraping, request filtering, and anomaly detection.
+The repo’s Docker Compose setup runs the backend on the internal `backend:5000` network and exposes it to the host via the frontend nginx proxy at `http://localhost/api/*`.
+
+### Local (without Docker)
+
+- `pip install -r requirements.txt`
+- `python -m playwright install chromium`
+- `python app.py` (defaults to port 5000)
+
+## Security notes
+
+- The WAF is a demo. Do not treat it as production-grade security.
+- Keep `ENABLE_DEV_ENDPOINTS` disabled in environments where WAF toggling and key listing should not be exposed.

@@ -1,302 +1,62 @@
-You are an expert Python security engineer helping build a **cybersecurity demonstration platform for an expo**.
-The goal of the project is **educational and defensive**: to demonstrate common web application vulnerabilities and show how a Web Application Firewall (WAF) can detect and block suspicious requests.
+# Envisage — Secure Scraper + WAF Demo
 
-The project contains two main components:
+This repo is an educational/defensive demo platform that shows how a simple Web Application Firewall (WAF) can detect and block suspicious request patterns, and how those blocks appear in monitoring/logs.
 
-1. **Security Testing Dashboard (Streamlit App)**
-2. **Protected Backend Application (Flask + WAF + Monitoring)**
+## Services (Docker Compose)
 
-The system must simulate suspicious or malicious traffic in a **controlled and safe environment**, and then demonstrate how the WAF detects and blocks those requests.
+- **Frontend (React + nginx)**
+  - URL: `http://localhost`
+  - Proxies API requests from the browser from `/api/*` → `backend:5000/*`
 
-## Overall Architecture
+- **Streamlit dashboard (Security Testing UI)**
+  - URL: `http://localhost:8501`
+  - Used to trigger safe WAF signature tests (SQLi/XSS patterns) and view monitoring
 
-Streamlit Security Dashboard
-↓
-Simulated security test requests
-↓
-Flask backend with WAF
-↓
-Monitoring + Logs + Visualizations
+- **Backend (Flask + WAF + scraping + monitoring)**
+  - Listens on `5000` inside the compose network
+  - Not published directly to the host by default; access it via `http://localhost/api/*` (nginx proxy)
 
-The code must follow these requirements:
+## Quick start
 
-* clean architecture
-* modular design
-* clear comments
-* type hints where possible
-* proper error handling
-* secure coding practices
-* no unnecessary global variables
-* avoid race conditions
-* robust logging
-* production-style structure
+From the repo root:
 
----
+- `docker compose up -d --build`
+- Open `http://localhost` (frontend)
+- Open `http://localhost:8501` (Streamlit)
 
-# Component 1 — Streamlit Security Dashboard
+To stop everything:
 
-Location:
+- `docker compose down --remove-orphans`
 
-```
-hackingtool/main.py
-```
+## How authentication works
 
-Purpose:
-Provide a **terminal-style UI** that allows a user to run **controlled security test scenarios** against the backend.
+- `GET /login` returns a JSON body containing an `x-api-key`.
+- Send that key in the request header `x-api-key` for protected endpoints (for example `/scrape`, `/data`, `/wordcloud`, `/summary`).
 
-Features:
+## WAF endpoints
 
-1. **Server connection panel**
+- `GET /waf/status` — always available (used by health checks).
+- `POST /waf/enable` and `POST /waf/disable` — **demo/dev endpoints**.
 
-   * input target server URL
-   * connect/disconnect status
+In this repo’s Docker Compose configuration, these dev endpoints are enabled by default for the expo demo.
+If you want them disabled, set `ENABLE_DEV_ENDPOINTS` to blank/`0` for the backend service.
 
-2. **Command terminal**
+## PowerShell notes (Windows)
 
-   * allow execution of predefined testing scripts
-   * show output logs
-   * support commands like:
+In PowerShell, use `curl.exe` (not `curl`) to avoid `Invoke-WebRequest` parameter differences.
 
-     * test_request_load
-     * test_invalid_headers
-     * test_suspicious_patterns
-     * test_session_validation
+Example checks (through nginx proxy):
 
-3. **Security test modules**
+- `curl.exe -sS http://localhost/api/waf/status`
+- `curl.exe -sS -X POST http://localhost/api/waf/disable`
+- `curl.exe -sS http://localhost/api/waf/status`
 
-   * simulated high request rate test
-   * invalid header injection test
-   * malformed request test
-   * repeated authentication attempts
+## Repo docs
 
-These should be implemented safely and must **never target external systems by default**.
+- Backend docs: see `secure_scraper_app/README.md`
+- Streamlit docs: see `hackingtool/README.md`
+- Frontend docs: see `frontend/app/README.md`
 
-4. **Visualization**
+## Safety
 
-   * show request statistics
-   * show blocked vs allowed requests
-   * display results in charts
-
----
-
-# Component 2 — Flask Backend with WAF
-
-The backend should implement a **simple Web Application Firewall (WAF)**.
-
-Core features:
-
-### WAF Middleware
-
-Create a request inspection layer that checks:
-
-* request rate per IP
-* suspicious headers
-* malformed payloads
-* invalid API key usage
-* unusual request patterns
-
-If a rule is triggered:
-
-* block the request
-* log the event
-* update monitoring stats
-
----
-
-### Endpoints
-
-/login
-Returns an API key used for authenticated requests.
-
----
-
-/scrape
-Accepts a public URL and extracts text content safely.
-
----
-
-/data
-Returns scraped text.
-
----
-
-/wordcloud
-Generates a word cloud from scraped text.
-
----
-
-/summary
-Returns a summarized version of the text.
-
----
-
-/logs
-Returns request logs.
-
----
-
-/monitoring
-Returns monitoring snapshot including:
-
-* waf_enabled
-* total_requests_checked
-* blocked_requests
-* success_requests
-* failed_requests
-* blocked_ips
-* blocked_ip_count
-* last_block_reason
-* total_logs
-
----
-
-/waf/enable
-Enable WAF. (POST)
-
----
-
-/waf/disable
-Disable WAF. (POST)
-
----
-
-### Monitoring System
-
-Maintain real-time metrics:
-
-* request counts
-* blocked requests
-* IP activity
-* endpoint usage
-
-Store logs in memory or SQLite for demo purposes.
-
-Each log entry should include:
-
-* id
-* ip
-* method
-* path
-* status
-* timestamp
-* waf_reason (if blocked)
-
----
-
-# Scraping + WordCloud
-
-Scraping module should:
-
-* fetch open-source web pages
-* extract text safely
-* remove scripts/styles
-* tokenize words
-* generate a word cloud image
-* store result path
-
-Use libraries such as:
-
-* requests
-* beautifulsoup4
-* wordcloud
-* matplotlib
-
----
-
-# Frontend Monitoring UI
-
-The monitoring dashboard should display:
-
-* WAF status toggle
-* request rate graph
-* blocked request counter
-* recent logs
-* IP block list
-* real-time updates every few seconds
-
----
-
-# Code Quality Requirements
-
-All code should include:
-
-* modular functions
-* type annotations
-* proper exception handling
-* descriptive variable names
-* docstrings
-* logging
-* consistent formatting
-
-Avoid bugs such as:
-
-* race conditions
-* duplicate API key generation
-* memory leaks
-* blocking event loops
-* improper CORS handling
-
----
-
-# Security Considerations
-
-Even though this is a demo:
-
-* validate inputs
-* sanitize URLs
-* prevent SSRF in scraping
-* limit request rate
-* isolate security tests to local environments
-* implement proper CORS headers
-* avoid exposing sensitive data
-
----
-
-# Output Expectations
-
-Generate:
-
-* clean Python code
-* modular files
-* reusable utilities
-* comments explaining security concepts
-
-Structure the project like:
-
-```
-project/
-│
-├─ hackingtool/
-│   └─ main.py
-│      - other files
-│
-├─ secure_scraper_app/
-│   ├─ app.py
-│   ├─ waf.py
-│   ├─ monitoring.py
-│   ├─ scraper.py
-│   ├─ auth.py
-│   ├─ logs.py
-│   ├─ llm.py
-│   ├─ config.py
-│   ├─ inspect_logs.py
-│   ├─ storage.py
-│   ├─ toggle_test.py
-│   ├─ visualization.py
-│   ├─ waf_test.py
-│   ├─ requirements.txt
-│   ├─ test_api.py
-│   └─ data/
-│       ├─ extracted_text/
-│       ├─ wordcloud/
-│       ├─ fernet.key
-│       ├─ request_logs.jsonl
-│       └─ sessions.json
-│
-└─ frontend/
-   └─ app/
-```
-
-Focus on **clarity, reliability, and educational value** so the system can be used for a cybersecurity demonstration.
-
-Test each component and make changes to have that behaviour 
+Use only on systems you are authorized to test. The included WAF tests are designed to be safe signature demonstrations, but you should still run this stack in a controlled environment.

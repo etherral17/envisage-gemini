@@ -1,29 +1,41 @@
-# Ethical Hacking Tool
+# Streamlit Security Dashboard (Expo WAF Demo)
 
-This repository folder contains a Streamlit‑based proof‑of‑concept application designed to assist with penetration testing exercises. It is not intended for malicious use.
+This folder contains a Streamlit app used to demonstrate the Secure Scraper backend’s WAF behavior in a controlled environment.
 
-## Components
+The UI is designed for an educational/defensive demo: it triggers harmless signature tests (SQLi/XSS patterns) and shows whether the backend WAF blocks them.
 
-- **`main.py`** – Streamlit app presenting three tabs:
-  - **Payload Execution**: Run arbitrary shell payloads over SSH against a configured host using `paramiko`.
-  - **API Testing**: Send JSON payloads to a target URL, useful for fuzzing or exploiting HTTP APIs.
-  - **Session Stealer**: Demonstrates how a session cookie can be obtained from a vulnerable target and reused; includes fields to login, display a stolen cookie, replay it against the target, and fetch decrypted session details. Designed for use with the `secure_scraper_app` service.
+## What’s in this folder
 
-- **`requirements.txt`** – lists Python dependencies required for running the tool (`streamlit`, `paramiko`, etc.).
+- `main.py` — “Expo WAF Demo — Secure Scraper WAF” Streamlit app.
+  - Tabs: **WAF Tester** and **About**.
+  - Target configuration: backend base URL, request timeout, TLS verification toggle.
+  - Authentication helper: `GET /login` to obtain an `x-api-key` for protected endpoints.
+  - Demo controls: `POST /waf/enable` and `POST /waf/disable`.
+  - Test cases: XSS/SQLi signature triggers and `GET /monitoring` snapshot.
 
-- **`test_cookie.py`** – simple script that exercises the `secure_scraper_app` login and session endpoints to verify stolen‑cookie replay.
+- `tool.py` — a generic API testing utility UI (send arbitrary HTTP requests and inspect response metadata).
 
-- **`.gitignore`** – ignores common Python environment artifacts and generated files.
+- `requirements.txt` — Python dependencies.
 
-## Usage
+## Running
 
-1. Install dependencies: `pip install -r requirements.txt`.
-2. Start the Streamlit app: `cd hackingtool && streamlit run main.py`.
-3. Follow the UI described above for different penetration tasks.
+### Option A — Run via Docker Compose (recommended)
 
-## Notes
+From the repo root:
 
-- The app includes hard‑coded examples and should only be used in isolated, lab environments.
-- The session stealer tab assumes the existence of a companion service (`secure_scraper_app`) listening on `http://localhost:5000` by default.
+- `docker compose up -d --build`
+- Open Streamlit: `http://localhost:8501`
 
-Be mindful of security and legal boundaries when experimenting.
+In Docker Compose, the app uses `BACKEND_BASE_URL` (default `http://backend:5000`).
+
+### Option B — Run locally (without Docker)
+
+- `pip install -r hackingtool/requirements.txt`
+- `streamlit run hackingtool/main.py`
+
+If the backend is running behind the frontend nginx proxy, set the **Backend base URL** to `http://localhost/api` (so `GET /waf/status` becomes `http://localhost/api/waf/status`).
+
+## Notes / Safety
+
+- Use only on systems you are authorized to test.
+- The WAF toggle endpoints (`/waf/enable`, `/waf/disable`) are intended for demo/dev use and may be disabled by configuration in some deployments.
