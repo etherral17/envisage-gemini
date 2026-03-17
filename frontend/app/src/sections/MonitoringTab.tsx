@@ -233,9 +233,15 @@ export function MonitoringTab() {
     return colors[method] || 'bg-gray-500/20 text-gray-400 border-gray-500/30'
   }
 
-  const removeFromBlockList = (ip: string) => {
-    setBlockList(prev => prev.filter(item => item.ip !== ip))
-    toast.success(`Removed ${ip} from block list`)
+  const removeFromBlockList = async (ip: string) => {
+    try {
+      await apiService.unblockIp(ip)
+      await loadMonitoring(true)
+      toast.success(`Unblocked ${ip}`)
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Failed to unblock IP'
+      toast.error(errorMsg)
+    }
   }
 
   const removeFromAllowList = (ip: string) => {

@@ -55,6 +55,10 @@ interface WafResponse {
   blocked_ip_count?: number
 }
 
+interface WafUnblockResponse extends WafResponse {
+  removed: boolean
+}
+
 interface MonitoringSnapshot {
   monitor: {
     waf_enabled: boolean
@@ -271,6 +275,14 @@ class ApiService {
       return await this.request<WafResponse>('/waf/status')
     } catch (error) {
       throw new Error(`Failed to fetch WAF status: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async unblockIp(ip: string): Promise<WafUnblockResponse> {
+    try {
+      return await this.request<WafUnblockResponse>('/waf/unblock', 'POST', { ip })
+    } catch (error) {
+      throw new Error(`Failed to unblock IP: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 

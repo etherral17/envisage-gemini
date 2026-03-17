@@ -52,6 +52,24 @@ EXEMPT_PATH_PREFIXES = (
 )
 
 
+def _get_client_ip() -> str:
+    """Best-effort client IP extraction.
+
+    In Docker Compose the frontend nginx proxy sets X-Forwarded-For and X-Real-IP.
+    In non-proxied setups we fall back to request.remote_addr.
+    """
+    xff = (request.headers.get("X-Forwarded-For") or "").strip()
+    if xff:
+        # X-Forwarded-For is a comma-separated list; the left-most is the original client.
+        first = xff.split(",")[0].strip()
+        if first:
+            return first
+    x_real_ip = (request.headers.get("X-Real-IP") or "").strip()
+    if x_real_ip:
+        return x_real_ip
+    return request.remote_addr or "0.0.0.0"
+
+
 def get_waf_status():
     return {
         "waf_enabled": bool(config.WAF_ENABLED),
@@ -73,11 +91,28 @@ def get_monitor_snapshot():
 
 
 def _mark_block(reason: str):
-    ip = request.remote_addr or "0.0.0.0"
+    ip = _get_client_ip()
     monitor_stats["blocked_requests"] += 1
     monitor_stats["last_block_reason"] = reason
     monitor_stats["last_blocked_ip"] = ip
     monitor_stats["last_event_ts"] = time.time()
+
+
+def unblock_ip(ip: str) -> bool:
+    """Remove an IP from the in-memory block list."""
+    ip = (ip or "").strip()
+    if not ip:
+        return False
+    if ip in blocked_ips:
+        blocked_ips.remove(ip)
+        return True
+    return False
+
+
+def block_ip(ip: str) -> None:
+    ip = (ip or "").strip()
+    if ip:
+        blocked_ips.add(ip)
 
 
 def _update_ip_stats(ip):
@@ -121,11 +156,23 @@ def waf_check():
     if not config.WAF_ENABLED:
         return
 
+    ip = _get_client_ip()
+    # Enforce a blocklist for the current process when WAF is enabled.
+    if ip in blocked_ips:
+        _mark_block("IP previously blocked")
+        try:
+            from flask import g
+            g.waf_reason = "IP previously blocked"
+        except ImportError:
+            pass
+        abort(403, "IP blocked")
+
     # basic signature checks first
     # include cookies in the payload for signature scanning
     payload = str(request.data) + str(request.args) + str(request.cookies)
     for pattern in SQLI_PATTERNS:
         if re.search(pattern, payload, re.IGNORECASE):
+            block_ip(ip)
             _mark_block("SQL Injection detected")
             # record reason before aborting
             try:
@@ -136,6 +183,7 @@ def waf_check():
             abort(403, "SQL Injection detected")
     for pattern in XSS_PATTERNS:
         if re.search(pattern, payload, re.IGNORECASE):
+            block_ip(ip)
             _mark_block("XSS detected")
             try:
                 from flask import g
@@ -146,18 +194,6 @@ def waf_check():
 
     # ML anomaly logic
     if _ml_available:
-        ip = request.remote_addr or "0.0.0.0"
-
-        # check blacklist first
-        if ip in blocked_ips:
-            _mark_block("IP previously blocked")
-            try:
-                from flask import g
-                g.waf_reason = "IP previously blocked"
-            except ImportError:
-                pass
-            abort(403, "IP blocked due to previous anomalous behaviour")
-
         info = _update_ip_stats(ip)
         info["paths"].add(request.path)
         info["ua"].add(request.headers.get("User-Agent", ""))
@@ -167,7 +203,7 @@ def waf_check():
         if model is not None:
             pred = model.predict([features])[0]
             if pred == -1:
-                blocked_ips.add(ip)
+                block_ip(ip)
                 _mark_block("Anomalous traffic detected")
                 try:
                     from flask import g

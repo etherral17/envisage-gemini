@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify, g, send_file
 from flask_cors import CORS
-from waf import waf_check, get_waf_status, get_monitor_snapshot
+from waf import waf_check, get_waf_status, get_monitor_snapshot, unblock_ip
 from auth import generate_api_key, validate_key, sessions
 from scraper import scrape_page
 from storage import save_secure, load_secure
@@ -32,6 +32,23 @@ if cors_origins:
 
 def _dev_endpoints_enabled() -> bool:
     return os.environ.get("ENABLE_DEV_ENDPOINTS", "").strip() == "1"
+
+
+def _get_client_ip() -> str:
+    """Best-effort client IP extraction.
+
+    When running behind nginx, prefer forwarded headers. Fall back to Flask's
+    request.remote_addr for non-proxied calls.
+    """
+    xff = (request.headers.get("X-Forwarded-For") or "").strip()
+    if xff:
+        first = xff.split(",")[0].strip()
+        if first:
+            return first
+    x_real_ip = (request.headers.get("X-Real-IP") or "").strip()
+    if x_real_ip:
+        return x_real_ip
+    return request.remote_addr or "0.0.0.0"
 
 
 @app.errorhandler(403)
@@ -78,7 +95,7 @@ def _append_log(entry: dict):
 def log_response(response):
     # collect information about the just-handled request
     entry = {
-        "ip": request.remote_addr,
+        "ip": _get_client_ip(),
         "method": request.method,
         "path": request.path,
         "status": response.status_code,
@@ -139,6 +156,25 @@ def waf_control(action):
     # log change and return current state
     _append_log({"event": "waf_toggle", "enabled": config.WAF_ENABLED})
     return jsonify({"waf_enabled": config.WAF_ENABLED})
+
+
+@app.route("/waf/unblock", methods=["POST"])
+def waf_unblock():
+    """Remove an IP from the WAF in-memory block list (development only)."""
+    if not _dev_endpoints_enabled():
+        return jsonify({"error": "not found"}), 404
+
+    payload = request.get_json(silent=True) or {}
+    ip = str(payload.get("ip", "")).strip()
+    if not ip:
+        return jsonify({"error": "ip is required"}), 400
+
+    removed = unblock_ip(ip)
+    _append_log({"event": "waf_unblock", "ip": ip, "status": 200 if removed else 404})
+    return jsonify({
+        **get_waf_status(),
+        "removed": bool(removed),
+    })
 
 
 @app.route("/waf/status", methods=["GET"])

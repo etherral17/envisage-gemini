@@ -71,6 +71,20 @@ def _get_waf_enabled(session: requests.Session, cfg: HttpConfig) -> bool | None:
     return bool(enabled) if enabled is not None else None
 
 
+def _get_blocked_ips(session: requests.Session, cfg: HttpConfig) -> list[str] | None:
+    code, data = _request_json(session, cfg, "GET", "/waf/status")
+    if code != 200 or not isinstance(data, dict):
+        return None
+    ips = data.get("blocked_ips")
+    if isinstance(ips, list):
+        return [str(ip).strip() for ip in ips if str(ip).strip()]
+    return []
+
+
+def _unblock_ip(session: requests.Session, cfg: HttpConfig, ip: str) -> tuple[int, Any]:
+    return _request_json(session, cfg, "POST", "/waf/unblock", json_body={"ip": ip})
+
+
 def _render_verdict(*, waf_enabled: bool | None, status_code: int) -> None:
     if waf_enabled is None:
         st.warning(f"Request returned {status_code}. Unable to read WAF status.")
@@ -169,6 +183,27 @@ with tab1:
 
     with control_col_3:
         st.caption("Tip: In EC2, keep these control endpoints restricted (SG allowlist/VPN).")
+
+    st.divider()
+    st.subheader("Blocked IPs")
+    blocked_ips = _get_blocked_ips(session, cfg)
+    if blocked_ips is None:
+        st.warning("Unable to fetch blocked IP list from /waf/status")
+    elif len(blocked_ips) == 0:
+        st.caption("No IPs currently blocked.")
+    else:
+        for ip in blocked_ips:
+            col_ip, col_btn = st.columns([3, 1])
+            with col_ip:
+                st.code(ip)
+            with col_btn:
+                if st.button("Unblock", key=f"unblock_{ip}"):
+                    code, data = _unblock_ip(session, cfg, ip)
+                    if code == 200 and isinstance(data, dict) and data.get("removed"):
+                        st.success(f"Unblocked {ip}")
+                    else:
+                        st.warning(f"Unblock failed ({code})")
+                        st.json(data)
 
     st.divider()
     st.subheader("WAF test cases")
